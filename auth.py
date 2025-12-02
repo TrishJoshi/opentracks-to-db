@@ -3,7 +3,8 @@ from typing import Optional
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from jose import JWTError, jwt
-from passlib.context import CryptContext
+# REMOVE: from passlib.context import CryptContext
+import bcrypt  # <--- ADD THIS
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 import models
@@ -15,8 +16,9 @@ SECRET_KEY = "CHANGE_THIS_TO_A_REALLY_LONG_RANDOM_STRING_IN_PROD"
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 10080  # 1 week
 
-# Password Hashing
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+# REMOVE: Password Hashing
+# pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
 # OAuth2 scheme
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 
@@ -42,12 +44,36 @@ class PasswordReset(BaseModel):
 
 
 # --- UTILS ---
-def verify_password(plain_password, hashed_password):
-    return pwd_context.verify(plain_password, hashed_password)
+def verify_password(plain_password: str, hashed_password: str) -> bool:
+    """
+    Checks if the plain password matches the hashed password.
+    Bcrypt requires bytes, so we encode the inputs.
+    """
+    if not plain_password or not hashed_password:
+        return False
+
+    try:
+        return bcrypt.checkpw(
+            plain_password.encode('utf-8'),
+            hashed_password.encode('utf-8')
+        )
+    except ValueError:
+        # Handles cases where the hash format might be invalid
+        return False
 
 
-def get_password_hash(password):
-    return pwd_context.hash(password)
+def get_password_hash(password: str) -> str:
+    """
+    Generates a bcrypt hash for the password.
+    Returns a string for storage in the database.
+    """
+    # 1. Generate salt and hash
+    pwd_bytes = password.encode('utf-8')
+    salt = bcrypt.gensalt()
+    hashed_bytes = bcrypt.hashpw(pwd_bytes, salt)
+
+    # 2. Decode bytes to string for database storage
+    return hashed_bytes.decode('utf-8')
 
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
