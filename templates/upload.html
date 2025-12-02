@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Upload Activity - OpenTracks</title>
+    <style>
+        body { font-family: -apple-system, system-ui, sans-serif; display: grid; place-items: center; min-height: 100vh; margin: 0; background-color: #f0f2f5; color: #1c1e21; }
+        .container { background: #ffffff; padding: 2rem; border-radius: 12px; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1); width: 90%; max-width: 500px; text-align: center; }
+        .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem;}
+        h1 { margin: 0; font-size: 1.5rem; }
+        .upload-area { border: 2px dashed #ced0d4; border-radius: 8px; padding: 2rem; margin-bottom: 1.5rem; cursor: pointer; }
+        .upload-area:hover { border-color: #1877f2; }
+        input[type="file"] { display: none; }
+        .file-icon { font-size: 3rem; margin-bottom: 1rem; }
+        #fileName { margin-top: 1rem; color: #1877f2; font-weight: bold; }
+        button.action-btn { background-color: #1877f2; color: white; border: none; padding: 0.8rem 2rem; border-radius: 6px; font-weight: bold; cursor: pointer; width: 100%; margin-top: 1rem;}
+        button.action-btn:disabled { background-color: #e4e6eb; color: #bcc0c4; }
+        button.logout-btn { background: none; border: none; color: #dc3545; cursor: pointer; font-size: 0.9rem;}
+        button.pw-btn { background: none; border: none; color: #666; cursor: pointer; font-size: 0.9rem; margin-right: 10px;}
+        .message { margin-top: 1rem; padding: 1rem; border-radius: 6px; display: none; }
+        .success { background-color: #e7f3ff; color: #1877f2; }
+        .error { background-color: #ffebe8; color: #dc3545; }
+
+        /* Modal Styles */
+        .modal { display: none; position: fixed; z-index: 1; left: 0; top: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.4); }
+        .modal-content { background-color: #fefefe; margin: 15% auto; padding: 20px; border: 1px solid #888; width: 80%; max-width: 300px; border-radius: 8px; }
+        .close { color: #aaa; float: right; font-size: 28px; font-weight: bold; cursor: pointer; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>Upload Activity</h1>
+            <div>
+                <button class="pw-btn" onclick="openModal()">Change Password</button>
+                <button class="logout-btn" onclick="logout()">Logout</button>
+            </div>
+        </div>
+
+        <form id="uploadForm">
+            <label for="fileInput" class="upload-area">
+                <div class="file-icon">📁</div>
+                <span>Choose a .kmz file</span>
+                <div id="fileName"></div>
+            </label>
+            <input type="file" name="file" id="fileInput" accept=".kmz" required>
+            <button type="submit" id="submitBtn" class="action-btn" disabled>Upload</button>
+        </form>
+        <div id="message" class="message"></div>
+    </div>
+
+    <!-- Password Reset Modal -->
+    <div id="pwModal" class="modal">
+        <div class="modal-content">
+            <span class="close" onclick="closeModal()">&times;</span>
+            <h3>Change Password</h3>
+            <input type="password" id="oldPw" placeholder="Old Password" style="width: 100%; margin-bottom: 10px; padding: 5px;">
+            <input type="password" id="newPw" placeholder="New Password" style="width: 100%; margin-bottom: 10px; padding: 5px;">
+            <button onclick="changePassword()" class="action-btn">Update</button>
+            <div id="pwMsg" style="margin-top: 10px;"></div>
+        </div>
+    </div>
+
+    <script>
+        // Check Auth
+        const token = localStorage.getItem('token');
+        if (!token) window.location.href = '/login';
+
+        function logout() {
+            localStorage.removeItem('token');
+            window.location.href = '/login';
+        }
+
+        // File Selection Logic
+        const fileInput = document.getElementById('fileInput');
+        const submitBtn = document.getElementById('submitBtn');
+        fileInput.addEventListener('change', () => {
+            if (fileInput.files.length > 0) {
+                document.getElementById('fileName').textContent = fileInput.files[0].name;
+                submitBtn.disabled = false;
+            }
+        });
+
+        // Upload Logic
+        document.getElementById('uploadForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            submitBtn.textContent = 'Uploading...';
+            submitBtn.disabled = true;
+
+            const formData = new FormData();
+            formData.append('file', fileInput.files[0]);
+
+            try {
+                const response = await fetch('/upload', {
+                    method: 'POST',
+                    headers: { 'Authorization': `Bearer ${token}` },
+                    body: formData
+                });
+
+                if (response.status === 401) logout();
+
+                const result = await response.json();
+                const msgEl = document.getElementById('message');
+                msgEl.style.display = 'block';
+
+                if (response.ok) {
+                    msgEl.className = 'message success';
+                    msgEl.innerHTML = `Success! Track saved. ID: ${result.track_id}`;
+                } else {
+                    msgEl.className = 'message error';
+                    msgEl.textContent = result.detail || 'Error uploading';
+                }
+            } catch (err) {
+                alert('Network error');
+            } finally {
+                submitBtn.textContent = 'Upload';
+                submitBtn.disabled = false;
+            }
+        });
+
+        // Password Modal Logic
+        const modal = document.getElementById("pwModal");
+        function openModal() { modal.style.display = "block"; }
+        function closeModal() { modal.style.display = "none"; }
+        window.onclick = function(event) { if (event.target == modal) closeModal(); }
+
+        async function changePassword() {
+            const oldPw = document.getElementById('oldPw').value;
+            const newPw = document.getElementById('newPw').value;
+            try {
+                const res = await fetch('/reset-password', {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ old_password: oldPw, new_password: newPw })
+                });
+                const data = await res.json();
+                document.getElementById('pwMsg').textContent = data.detail || data.message;
+                if(res.ok) setTimeout(closeModal, 1500);
+            } catch(e) {
+                document.getElementById('pwMsg').textContent = "Error";
+            }
+        }
+    </script>
+</body>
+</html>

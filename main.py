@@ -1,133 +1,118 @@
-from fastapi import FastAPI, File, UploadFile, Depends, HTTPException
+from fastapi import FastAPI, File, UploadFile, Depends, HTTPException, Request, status
+from fastapi.security import OAuth2PasswordRequestForm
 from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
-import models, database, parser
+from datetime import timedelta
+import models, database, parser, auth
 
-# NOTE: We removed the `models.Base.metadata.create_all(bind=database.engine)` line.
-# Table creation is now handled entirely by Alembic migrations.
+# Initialize Database (or rely on Alembic)
+# models.Base.metadata.create_all(bind=database.engine) # We use Alembic now
 
 app = FastAPI(title="OpenTracks Importer")
 
+# Setup Templates
+templates = Jinja2Templates(directory="templates")
+
+
+# --- HTML ROUTES ---
+@app.get("/login", response_class=HTMLResponse)
+async def login_page(request: Request):
+    return templates.TemplateResponse("login.html", {"request": request})
+
+
+@app.get("/signup", response_class=HTMLResponse)
+async def signup_page(request: Request):
+    return templates.TemplateResponse("signup.html", {"request": request})
+
+
+@app.get("/upload", response_class=HTMLResponse)
+async def upload_page(request: Request):
+    return templates.TemplateResponse("upload.html", {"request": request})
+
+
 @app.get("/", response_class=HTMLResponse)
-async def get_upload_page():
-    return """
-    <!DOCTYPE html>
-    <html lang="en">
-    <head>
-        <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Upload OpenTracks KMZ</title>
-        <style>
-            body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-                   display: grid; place-items: center; min-height: 100vh; margin: 0; background-color: #f0f2f5; color: #1c1e21; }
-            .container { background: #ffffff; padding: 2rem 2.5rem; border-radius: 12px;
-                         box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1), 0 8px 16px rgba(0, 0, 0, 0.1);
-                         width: 100%; max-width: 480px; text-align: center; }
-            h1 { margin-bottom: 1.5rem; color: #1c1e21; font-weight: 600; }
-            .upload-area { border: 2px dashed #ced0d4; border-radius: 8px; padding: 2rem;
-                           margin-bottom: 1.5rem; transition: border-color 0.2s; cursor: pointer; }
-            .upload-area:hover { border-color: #1877f2; }
-            input[type="file"] { display: none; }
-            .file-label { display: block; cursor: pointer; font-size: 1.1rem; color: #65676b; }
-            .file-icon { font-size: 3rem; color: #1877f2; margin-bottom: 1rem; }
-            #fileName { margin-top: 1rem; font-weight: 500; color: #1877f2; word-break: break-all; }
-            button { background-color: #1877f2; color: white; border: none; padding: 0.875rem 2rem;
-                     border-radius: 6px; font-size: 1rem; font-weight: 600; cursor: pointer;
-                     transition: background-color 0.2s; width: 100%; }
-            button:hover { background-color: #166fe5; }
-            button:disabled { background-color: #e4e6eb; color: #bcc0c4; cursor: not-allowed; }
-            #message { margin-top: 1.5rem; padding: 1rem; border-radius: 6px; font-weight: 500; display: none; text-align: left; }
-            .success { background-color: #e7f3ff; color: #1877f2; border: 1px solid #1877f2; }
-            .error { background-color: #ffebe8; color: #dc3545; border: 1px solid #dc3545; }
-            .loading { opacity: 0.7; cursor: not-allowed; }
-        </style>
-    </head>
-    <body>
-        <div class="container">
-            <h1>Upload OpenTracks KMZ</h1>
-            <form id="uploadForm">
-                <label for="fileInput" class="upload-area">
-                    <div class="file-icon">📁</div>
-                    <span class="file-label">Choose a .kmz file or drag it here</span>
-                    <div id="fileName"></div>
-                </label>
-                <input type="file" name="file" id="fileInput" accept=".kmz" required>
-                <button type="submit" id="submitBtn" disabled>Upload Activity</button>
-            </form>
-            <div id="message"></div>
-        </div>
-        <script>
-            const form = document.getElementById('uploadForm');
-            const fileInput = document.getElementById('fileInput');
-            const fileNameDisplay = document.getElementById('fileName');
-            const submitBtn = document.getElementById('submitBtn');
-            const messageEl = document.getElementById('message');
+async def root(request: Request):
+    # Default to upload page (which will redirect to login if no token)
+    return templates.TemplateResponse("upload.html", {"request": request})
 
-            fileInput.addEventListener('change', (e) => {
-                if (fileInput.files.length > 0) {
-                    fileNameDisplay.textContent = fileInput.files[0].name;
-                    submitBtn.disabled = false;
-                } else {
-                    fileNameDisplay.textContent = '';
-                    submitBtn.disabled = true;
-                }
-            });
 
-            form.addEventListener('submit', async (e) => {
-                e.preventDefault();
-                submitBtn.textContent = 'Uploading...';
-                submitBtn.classList.add('loading');
-                submitBtn.disabled = true;
-                messageEl.style.display = 'none';
+# --- AUTH ROUTES ---
+@app.post("/register", status_code=status.HTTP_201_CREATED)
+async def register(user: auth.UserCreate, db: Session = Depends(database.get_db)):
+    # Check if user exists
+    existing_user = db.query(models.User).filter(models.User.username == user.username).first()
+    if existing_user:
+        raise HTTPException(status_code=400, detail="Username already registered")
 
-                const formData = new FormData();
-                formData.append('file', fileInput.files[0]);
+    # Create User
+    hashed_pw = auth.get_password_hash(user.password)
+    new_user = models.User(username=user.username, hashed_password=hashed_pw)
+    db.add(new_user)
+    db.commit()
+    return {"message": "User created successfully"}
 
-                try {
-                    const response = await fetch('/upload', { method: 'POST', body: formData });
-                    const result = await response.json();
 
-                    messageEl.style.display = 'block';
-                    if (response.ok) {
-                        messageEl.className = 'success';
-                        messageEl.innerHTML = `✅ <strong>Success!</strong><br>Track: ${result.track_name}<br>ID: ${result.track_id}`;
-                        form.reset();
-                        fileNameDisplay.textContent = '';
-                    } else {
-                        messageEl.className = 'error';
-                        messageEl.innerHTML = `❌ <strong>Error:</strong><br>${result.detail}`;
-                    }
-                } catch (err) {
-                    messageEl.style.display = 'block';
-                    messageEl.className = 'error';
-                    messageEl.textContent = `Network Error: ${err.message}`;
-                } finally {
-                    submitBtn.textContent = 'Upload Activity';
-                    submitBtn.classList.remove('loading');
-                    // Only re-enable if there is still a file selected (mostly for retries if needed, though form reset clears it)
-                     if (fileInput.files.length > 0) submitBtn.disabled = false;
-                }
-            });
-        </script>
-    </body>
-    </html>
-    """
+@app.post("/token", response_model=auth.Token)
+async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(),
+                                 db: Session = Depends(database.get_db)):
+    # 1. Fetch user
+    user = db.query(models.User).filter(models.User.username == form_data.username).first()
+    # 2. Verify password
+    if not user or not auth.verify_password(form_data.password, user.hashed_password):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Incorrect username or password",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    # 3. Create Token
+    access_token_expires = timedelta(minutes=auth.ACCESS_TOKEN_EXPIRE_MINUTES)
+    access_token = auth.create_access_token(
+        data={"sub": user.username}, expires_delta=access_token_expires
+    )
+    return {"access_token": access_token, "token_type": "bearer"}
 
+
+@app.post("/reset-password")
+async def reset_password(
+        pw_data: auth.PasswordReset,
+        current_user: models.User = Depends(auth.get_current_user),
+        db: Session = Depends(database.get_db)
+):
+    # Verify old password
+    if not auth.verify_password(pw_data.old_password, current_user.hashed_password):
+        raise HTTPException(status_code=400, detail="Incorrect old password")
+
+    # Update with new hash
+    current_user.hashed_password = auth.get_password_hash(pw_data.new_password)
+    db.commit()
+    return {"message": "Password updated successfully"}
+
+
+# --- PROTECTED UPLOAD ROUTE ---
 @app.post("/upload")
-async def upload_kmz_file(file: UploadFile = File(...), db: Session = Depends(database.get_db)):
+async def upload_kmz_file(
+        file: UploadFile = File(...),
+        current_user: models.User = Depends(auth.get_current_user),  # <--- PROTECTED
+        db: Session = Depends(database.get_db)
+):
     if not file.filename.endswith('.kmz'):
         raise HTTPException(status_code=400, detail="Invalid file type. Only .kmz files are accepted.")
 
     try:
         file_content = await file.read()
-        new_track = parser.parse_kmz_file(file_content, db)
+        # Pass the user.id to the parser so it's associated with the track
+        new_track = parser.parse_kmz_file(file_content, db, current_user.id)
+
         return JSONResponse(status_code=201, content={
             "message": "File processed successfully",
             "track_id": new_track.id,
-            "track_name": new_track.name
+            "track_name": new_track.name,
+            "owner": current_user.username
         })
+
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
-        print(f"An unexpected error occurred: {e}")
-        raise HTTPException(status_code=500, detail="An internal server error occurred.")
+        print(f"Error: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error.")

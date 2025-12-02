@@ -4,3 +4,7 @@ sqlalchemy[psycopg2-binary]
 geoalchemy2
 lxml
 alembic
+passlib[bcrypt]
+python-multipart
+python-jose[cryptography]
+jinja2
