@@ -131,3 +131,58 @@ async def upload_kmz_file(
     except Exception as e:
         print(f"Error: {e}")
         raise HTTPException(status_code=500, detail="Internal server error.")
+
+
+@app.get("/tracks")
+async def get_tracks(
+        current_user: models.User = Depends(auth.get_current_user),
+        db: Session = Depends(database.get_db)
+):
+    """
+    Returns a list of tracks.
+    - Admins see ALL tracks.
+    - Regular users see only THEIR tracks.
+    """
+    if current_user.is_admin:
+        tracks = db.query(models.Track).order_by(models.Track.start_time.desc()).all()
+    else:
+        tracks = db.query(models.Track).filter(models.Track.user_id == current_user.id).order_by(
+            models.Track.start_time.desc()).all()
+
+    # Return a simplified list suitable for JSON
+    return [
+        {
+            "id": t.id,
+            "name": t.name,
+            "date": t.start_time.strftime('%Y-%m-%d %H:%M') if t.start_time else "Unknown",
+            "distance": f"{float(t.total_distance_m) / 1000:.2f} km" if t.total_distance_m else "0 km",
+            "owner_id": t.user_id
+        }
+        for t in tracks
+    ]
+
+
+@app.delete("/tracks/{track_id}")
+async def delete_track(
+        track_id: int,
+        current_user: models.User = Depends(auth.get_current_user),
+        db: Session = Depends(database.get_db)
+):
+    """
+    Deletes a track.
+    - Admins can delete ANY track.
+    - Users can only delete THEIR own tracks.
+    """
+    track = db.query(models.Track).filter(models.Track.id == track_id).first()
+    if not track:
+        raise HTTPException(status_code=404, detail="Track not found")
+
+    # Permission Check
+    if not current_user.is_admin and track.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Not authorized to delete this track")
+
+    # SQLAlchemy handles the cascade delete of points because of 'cascade="all, delete-orphan"' in models.py
+    db.delete(track)
+    db.commit()
+
+    return {"message": f"Track {track_id} deleted successfully"}

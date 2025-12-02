@@ -73,6 +73,13 @@
             <button onclick="changePassword()" class="action-btn">Update</button>
             <div id="pwMsg" style="margin-top: 10px;"></div>
         </div>
+
+    <div style="margin-top: 2rem; border-top: 1px solid #eee; padding-top: 1rem;">
+    <h2>Your Tracks</h2>
+    <div id="trackList" style="text-align: left; max-height: 300px; overflow-y: auto;">
+        <p style="text-align: center; color: #666;">Loading tracks...</p>
+    </div>
+</div>
     </div>
 
     <script>
@@ -183,6 +190,80 @@
             alert("Network error");
         }
     }
+
+        async function loadTracks() {
+            const listDiv = document.getElementById('trackList');
+            try {
+                const res = await fetch('/tracks', {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+
+                if (res.status === 401) logout();
+
+                const tracks = await res.json();
+
+                if (tracks.length === 0) {
+                    listDiv.innerHTML = '<p style="text-align: center; color: #666;">No tracks found.</p>';
+                    return;
+                }
+
+                let html = '<ul style="list-style: none; padding: 0;">';
+                tracks.forEach(t => {
+                    html += `
+                    <li style="background: #f8f9fa; margin-bottom: 8px; padding: 10px; border-radius: 6px; display: flex; justify-content: space-between; align-items: center; border: 1px solid #eee;">
+                        <div>
+                            <div style="font-weight: bold; font-size: 0.95rem;">${t.name}</div>
+                            <div style="font-size: 0.8rem; color: #666;">${t.date} • ${t.distance}</div>
+                        </div>
+                        <button onclick="deleteTrack(${t.id})" style="background: #ffdbdb; color: #cc0000; border: none; padding: 5px 10px; border-radius: 4px; cursor: pointer; font-size: 0.8rem; font-weight: bold;">
+                            Delete
+                        </button>
+                    </li>`;
+                });
+                html += '</ul>';
+                listDiv.innerHTML = html;
+
+            } catch (e) {
+                listDiv.innerHTML = '<p style="color: red;">Error loading tracks.</p>';
+            }
+        }
+
+        // NEW: Function to delete track
+        async function deleteTrack(id) {
+            if(!confirm("Are you sure you want to delete this track? This cannot be undone.")) return;
+
+            try {
+                const res = await fetch(`/tracks/${id}`, {
+                    method: 'DELETE',
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+
+                if (res.ok) {
+                    loadTracks(); // Refresh list
+                } else {
+                    alert("Failed to delete track");
+                }
+            } catch(e) {
+                alert("Network error");
+            }
+        }
+
+        // Initial Load
+        loadTracks();
+
+        // ... existing upload logic ...
+
+        // UPDATE existing upload logic: Call loadTracks() after successful upload
+        document.getElementById('uploadForm').addEventListener('submit', async (e) => {
+            // ... existing code ...
+            // inside if (response.ok) block:
+            if (response.ok) {
+                 msgEl.className = 'message success';
+                 msgEl.innerHTML = `Success! Track saved. ID: ${result.track_id}`;
+                 loadTracks(); // <--- ADD THIS to refresh list automatically
+            }
+            // ... existing code ...
+        });
     </script>
 </body>
 </html>
