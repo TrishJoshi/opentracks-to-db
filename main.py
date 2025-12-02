@@ -186,3 +186,7 @@ async def delete_track(
     db.commit()
 
     return {"message": f"Track {track_id} deleted successfully"}
+
+@app.get("/view-tracks", response_class=HTMLResponse)
+async def view_tracks_page(request: Request):
+    return templates.TemplateResponse("tracks.html", {"request": request})
