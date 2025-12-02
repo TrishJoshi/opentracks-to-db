@@ -29,6 +29,19 @@
     </style>
 </head>
 <body>
+    <div style="margin-top: 2rem; border-top: 1px solid #eee; padding-top: 1rem;">
+        <h3>Automation / API Key</h3>
+        <p style="font-size: 0.9rem; color: #666;">
+            Use this key in the <code>X-API-Key</code> header to upload files via scripts.
+        </p>
+
+        <button onclick="generateApiKey()" class="action-btn" style="background-color: #42b72a;">
+            Generate New API Key
+        </button>
+
+        <div id="apiKeyDisplay" style="margin-top: 10px; padding: 10px; background: #f8f9fa; border: 1px solid #ddd; border-radius: 4px; display: none; word-break: break-all; font-family: monospace;">
+            </div>
+    </div>
     <div class="container">
         <div class="header">
             <h1>Upload Activity</h1>
@@ -144,6 +157,32 @@
                 document.getElementById('pwMsg').textContent = "Error";
             }
         }
+
+        async function generateApiKey() {
+        if(!confirm("Generating a new key will invalidate any existing one. Continue?")) return;
+
+        try {
+            const res = await fetch('/generate-api-key', {
+                method: 'POST',
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+
+            if (res.status === 401) logout();
+
+            const data = await res.json();
+            const display = document.getElementById('apiKeyDisplay');
+
+            if (res.ok) {
+                display.style.display = 'block';
+                display.style.color = '#1c1e21';
+                display.innerHTML = `<strong>New Key:</strong><br>${data.api_key}<br><br><small style='color:red'>Copy this now. It won't be shown again.</small>`;
+            } else {
+                alert("Error generating key");
+            }
+        } catch(e) {
+            alert("Network error");
+        }
+    }
     </script>
 </body>
 </html>

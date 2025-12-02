@@ -3,12 +3,14 @@ from typing import Optional
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from jose import JWTError, jwt
-# REMOVE: from passlib.context import CryptContext
-import bcrypt  # <--- ADD THIS
+import bcrypt
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 import models
 import database
+import secrets
+import hashlib
+from fastapi import Header
 
 # --- CONFIGURATION ---
 # In a real production app, move SECRET_KEY to an environment variable!
@@ -110,3 +112,49 @@ async def get_current_user(token: str = Depends(oauth2_scheme), db: Session = De
     if user is None:
         raise credentials_exception
     return user
+
+def generate_api_key():
+    """Generates a random URL-safe API key."""
+    return secrets.token_urlsafe(32)
+
+def hash_api_key(api_key: str) -> str:
+    """Hashes the API key using SHA256 for DB storage."""
+    return hashlib.sha256(api_key.encode()).hexdigest()
+
+# Modify OAuth2 scheme to be optional so we can fall back to API Key
+oauth2_scheme_optional = OAuth2PasswordBearer(tokenUrl="token", auto_error=False)
+
+async def get_current_user_or_api_key(
+    token: Optional[str] = Depends(oauth2_scheme_optional),
+    api_key: Optional[str] = Header(None, alias="X-API-Key"),
+    db: Session = Depends(database.get_db)
+):
+    """
+    Authenticates via Bearer Token OR X-API-Key.
+    """
+    # 1. Try Bearer Token (JWT)
+    if token:
+        try:
+            payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+            username: str = payload.get("sub")
+            if username:
+                user = db.query(models.User).filter(models.User.username == username).first()
+                if user:
+                    return user
+        except JWTError:
+            pass # Token invalid, fall through to API key check
+
+    # 2. Try API Key
+    if api_key:
+        # Hash the incoming key to match against the DB
+        hashed_input = hash_api_key(api_key)
+        user = db.query(models.User).filter(models.User.api_key_hash == hashed_input).first()
+        if user:
+            return user
+
+    # 3. If both fail
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Could not validate credentials (Token or API Key required)",
+        headers={"WWW-Authenticate": "Bearer"},
+    )

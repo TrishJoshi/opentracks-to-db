@@ -88,12 +88,27 @@ async def reset_password(
     db.commit()
     return {"message": "Password updated successfully"}
 
+@app.post("/generate-api-key")
+async def generate_api_key_endpoint(
+        current_user: models.User = Depends(auth.get_current_user),
+        db: Session = Depends(database.get_db)
+):
+    """
+    Generates a new API key for the user, invalidating the old one.
+    Returns the raw key ONCE. The server only stores the hash.
+    """
+    new_key = auth.generate_api_key()
+    new_hash = auth.hash_api_key(new_key)
 
-# --- PROTECTED UPLOAD ROUTE ---
+    current_user.api_key_hash = new_hash
+    db.commit()
+
+    return {"api_key": new_key, "message": "Save this key! It won't be shown again."}
+
 @app.post("/upload")
 async def upload_kmz_file(
         file: UploadFile = File(...),
-        current_user: models.User = Depends(auth.get_current_user),  # <--- PROTECTED
+        current_user: models.User = Depends(auth.get_current_user_or_api_key),
         db: Session = Depends(database.get_db)
 ):
     if not file.filename.endswith('.kmz'):

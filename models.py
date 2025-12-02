@@ -11,10 +11,10 @@ class User(Base):
     username = Column(String, unique=True, index=True)
     hashed_password = Column(String)
     is_admin = Column(Boolean, default=False)
+    api_key_hash = Column(String, index=True, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default='NOW()')
 
     tracks = relationship("Track", back_populates="owner")
-
 
 class Track(Base):
     __tablename__ = "opentracks_tracks"
